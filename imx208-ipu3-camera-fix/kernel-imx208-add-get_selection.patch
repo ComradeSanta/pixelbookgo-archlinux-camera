@@ -1,0 +1,72 @@
+From: Assistant <assistant@local>
+Date: Fri, 5 Jun 2026 08:34:00 +0800
+Subject: [PATCH] media: i2c: imx208: Add get_selection pad operation
+
+libcamera (and other modern camera stacks) require the sensor driver
+to implement V4L2_SUBDEV_PAD_OPS get_selection in order to query the
+crop rectangle, crop bounds and native sensor size.
+
+Without this operation, libcamera falls back to default values and
+prints warnings such as:
+
+  ERROR V4L2 v4l2_subdevice.cpp:1192 'imx208 2-0010':
+         Unable to get rectangle 0 on pad 0/0
+  WARN CameraSensor camera_sensor_legacy.cpp:427 'imx208 2-0010':
+         The sensor kernel driver needs to be fixed
+
+Implement get_selection to return CROP, CROP_BOUNDS and NATIVE_SIZE
+based on the currently selected mode.
+
+Signed-off-by: Assistant <assistant@local>
+---
+ drivers/media/i2c/imx208.c | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/drivers/media/i2c/imx208.c b/drivers/media/i2c/imx208.c
+index xxxxxxx..xxxxxxx 100644
+--- a/drivers/media/i2c/imx208.c
++++ b/drivers/media/i2c/imx208.c
+@@ -450,6 +450,36 @@ static int imx208_enum_frame_size(struct v4l2_subdev *sd,
+ 	return 0;
+ }
+ 
++static int imx208_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *sd_state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct imx208 *imx208 = to_imx208(sd);
++	struct v4l2_mbus_framefmt *fmt;
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++		fmt = &imx208->mode->format;
++		sel->r.left = 0;
++		sel->r.top = 0;
++		sel->r.width = fmt->width;
++		sel->r.height = fmt->height;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		/* Native pixel array size: 1936 x 1096 */
++		sel->r.left = 0;
++		sel->r.top = 0;
++		sel->r.width = 1936;
++		sel->r.height = 1096;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
+ static int imx208_get_fmt(struct v4l2_subdev *sd,
+ 			  struct v4l2_subdev_state *sd_state,
+ 			  struct v4l2_subdev_format *fmt)
+@@ -580,6 +610,7 @@ static const struct v4l2_subdev_pad_ops imx208_pad_ops = {
+ 	.enum_mbus_code = imx208_enum_mbus_code,
+ 	.enum_frame_size = imx208_enum_frame_size,
+ 	.get_fmt = imx208_get_fmt,
++	.get_selection = imx208_get_selection,
+ 	.set_fmt = imx208_set_fmt,
+ };
+ 

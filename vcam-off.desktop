@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Disable Virtual Camera
+Name[zh_CN]=禁用虚拟摄像头
+Comment=Disable the virtual camera device
+Comment[zh_CN]=禁用虚拟摄像头
+Exec=/home/arch/virtualcamera/vcam-off.sh
+Icon=camera-web
+Terminal=false
+Type=Application
+Categories=AudioVideo;Utility;
+StartupNotify=false

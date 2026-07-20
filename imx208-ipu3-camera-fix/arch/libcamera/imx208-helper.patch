@@ -1,0 +1,73 @@
+From: Peter Lishov <peter.lishov@gmail.com>
+Date: Sun, 6 Apr 2025 19:15:49 +0300
+Subject: [PATCH] ipa: libipa: Add IMX208 camera sensor helper and properties
+
+The Sony IMX208 is used in several Intel IPU3-based devices, including
+the Google Pixelbook Go (2019) and some Microsoft Surface tablets.
+Without this helper, the IPU3 IPA fails to initialize with:
+
+  ERROR IPAIPU3 ipu3.cpp:306 Failed to create camera sensor helper for imx208
+  ERROR IPU3 ipu3.cpp:1194 Failed to initialise the IPU3 IPA
+
+Add the CameraSensorHelper and sensor properties entries to allow
+libcamera to recognize and operate the IMX208. The analogue gain model
+(AnalogueGainLinear{ 0, 256, -1, 256 }) is copied from IMX219, which
+uses the same Sony gain register layout (0x0204). The actual gain
+register range of the IMX208 is [0, 224] per its datasheet, so the
+linear-gain assumption is approximate but works in practice; tune the
+model with real measurements if exposure appears off.
+
+Signed-off-by: Peter Lishov <peter.lishov@gmail.com>
+---
+ src/ipa/libipa/camera_sensor_helper.cpp        | 11 +++++++++++
+ src/libcamera/sensor/camera_sensor_properties.cpp | 16 ++++++++++++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -554,6 +554,17 @@ class CameraSensorHelperImx219 : public CameraSensorHelper
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("imx219", CameraSensorHelperImx219)
+
++class CameraSensorHelperImx208 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx208()
++	{
++		/* IMX208 uses the same analogue gain model as IMX219 */
++		gain_ = AnalogueGainLinear{ 0, 256, -1, 256 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx208", CameraSensorHelperImx208)
++
+ class CameraSensorHelperImx258 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -210,6 +210,22 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 				.hblankDelay = 2
+ 			},
+ 		} },
++		{ "imx208", {
++				.unitCellSize = { 1120, 1120 },
++				.testPatternModes = {
++					{ controls::draft::TestPatternModeOff, 0 },
++					{ controls::draft::TestPatternModeSolidColor, 1 },
++					{ controls::draft::TestPatternModeColorBars, 2 },
++					{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++					{ controls::draft::TestPatternModePn9, 4 },
++				},
++				.sensorDelays = {
++					.exposureDelay = 2,
++					.gainDelay = 2,
++					.vblankDelay = 2,
++					.hblankDelay = 2
++				},
++			} },
+ 		{ "imx258", {
+ 			.unitCellSize = { 1120, 1120 },
+ 			.testPatternModes = {
+--

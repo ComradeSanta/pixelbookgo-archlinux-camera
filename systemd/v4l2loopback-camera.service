@@ -1,0 +1,14 @@
+[Unit]
+Description=Pipe libcamera to V4L2 loopback for WeChat
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'v4l2-ctl --list-devices 2>/dev/null | grep -q "Virtual Camera"'
+ExecStart=/home/arch/.local/bin/v4l2loopback-gst.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+# runtime artifacts
+vcam.log
+vcam-feed.pid
+
+# built binaries (rebuild: gcc -O2 -shared -fPIC -o wemeet-v4l2fix.so wemeet-v4l2fix.c -ldl)
+wemeet-v4l2fix.so
+
+# local tool config / agent state
+reasonix.toml
+.agents/
+.codex/

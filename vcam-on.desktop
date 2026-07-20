@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Enable Virtual Camera
+Name[zh_CN]=启用虚拟摄像头
+Comment=Enable the virtual camera device for video calls
+Comment[zh_CN]=启用虚拟摄像头用于视频会议
+Exec=/home/arch/virtualcamera/vcam-on.sh
+Icon=camera-web
+Terminal=false
+Type=Application
+Categories=AudioVideo;Utility;
+StartupNotify=false

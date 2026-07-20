@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Name=Toggle Virtual Camera
+Name[zh_CN]=开关虚拟摄像头
+GenericName=Toggle virtual camera feed
+GenericName[zh_CN]=开关虚拟摄像头画面
+Comment=Start/stop the virtual camera feed (one click on, one click off)
+Comment[zh_CN]=开启/关闭虚拟摄像头画面（单击切换）
+Exec=/home/arch/virtualcamera/vcam-toggle.sh
+Icon=camera-web
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+StartupNotify=false

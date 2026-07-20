@@ -1,0 +1,12 @@
+[Unit]
+Description=Set IMX208 digital gain to 8x
+After=wireplumber.service
+Wants=wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/%u/.local/bin/set-digital-gain.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
