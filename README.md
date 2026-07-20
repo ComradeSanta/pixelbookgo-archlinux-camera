@@ -15,6 +15,24 @@ details and its own README:
 
 Plus the hard-won app-compatibility knowledge in [§6](#6-app-compatibility--daily-workflow).
 
+## One-shot install via an AI agent
+
+You don't have to follow the steps manually. Point your AI coding agent
+(Kimi Code, Claude Code, Cursor, Aider…) at this repo — it contains everything
+needed, including `CLAUDE.md` with machine-readable internals. Paste this:
+
+```
+Clone https://github.com/ComradeSanta/pixelbookgo-archlinux-camera and set up
+the camera on this Pixelbook Go running Arch Linux. Follow README.md: build
+and install the patched libcamera (part 1), install the color fix (part 2),
+then set up the v4l2loopback virtual camera for WeChat/wemeet (part 3,
+including the driver patch and the wemeet shim). Add the libcamera packages to
+IgnorePkg in /etc/pacman.conf. Verify each layer works before moving on
+(verify-camera.sh, cam -l, a test frame from the virtual camera).
+```
+
+The agent will need sudo access for package installs, DKMS and modprobe.
+
 ---
 
 ## 0. Why the camera is broken out of the box
