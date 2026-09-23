@@ -15,6 +15,26 @@ details and its own README:
 
 Plus the hard-won app-compatibility knowledge in [§6](#6-app-compatibility--daily-workflow).
 
+## Problems this guide solves
+
+Everything below was hit on real hardware and is fixed here. If you only
+want the story of *why* things were broken, read this table top to bottom.
+
+| Symptom | Root cause | Fix |
+|---------|-----------|-----|
+| No camera device at all | libcamera has no IMX208 sensor-helper/properties, refuses to init | patched libcamera (§1) |
+| Picture nearly black, wrong colors | IPU3 IPA falls back to empty `uncalibrated.yaml`; AGC never touches `digital_gain` | `imx208.yaml` tuning + digital-gain script (§2) |
+| Picture **pulses/flickers** indoors | exposure time not a multiple of the 50 Hz mains cycle (100 Hz light ripple) | tuning curve pins exposure at 10 ms (§2) |
+| Flicker **returns in dim rooms** | pinned window is only 8× wide; dark scenes push AGC off the 10 ms pin | `imx208-auto-dgain.sh` watcher adapts digital gain (§2) |
+| WeChat / wemeet can't use the camera | they only understand UVC-style `/dev/video*`, not IPU3/libcamera | v4l2loopback virtual camera + feed (§3) |
+| Only **one app** can open the camera; second gets `EBUSY` | v4l2loopback token model: single capture owner; apps also probe on one fd and capture on another | shared-capture driver patch (§3.1) |
+| wemeet camera **black**, other apps fine | TRTC sends `DQBUF`/`QBUF` with `memory=0`; driver rejects with `EINVAL` | `wemeet-v4l2fix.so` LD_PRELOAD shim (§3.5) |
+| wemeet picture has a **rolling horizontal seam** | TRTC reads the mapped buffer *during* encode, racing the producer's next write into the same shared memory | driver serves freshest completed slot (§3.1) + shim substitutes a private copy per buffer (§3.5) |
+| Session "**shuts down**" to the login screen | wireplumber's libcamera plugin SEGV-loops on the IMX208 and takes gnome-shell down | disable the plugin (§3.4) |
+| Machine **hangs on shutdown** with camera on | apps holding the camera hang on stop | toggle the feed off first (§4) |
+| Camera works, then silently breaks after a system update | `v4l2loopback-dkms` package upgrade restores pristine source; next DKMS rebuild drops the patch | pacman hook re-applies it (§3.1) |
+| GNOME Camera (Snapshot) won't stream | broken upstream twice (pipewire provider gone; camerabin vs locked loopback format) | use kamoso/guvcview instead (§6) |
+
 ## One-shot install via an AI agent
 
 You don't have to follow the steps manually. Point your AI coding agent
@@ -24,10 +44,11 @@ needed, including `CLAUDE.md` with machine-readable internals. Paste this:
 ```
 Clone https://github.com/ComradeSanta/pixelbookgo-archlinux-camera and set up
 the camera on this Pixelbook Go running Arch Linux. Follow README.md: build
-and install the patched libcamera (part 1), install the color fix (part 2),
-then set up the v4l2loopback virtual camera for WeChat/wemeet (part 3,
-including the driver patch and the wemeet shim). Add the libcamera packages to
-IgnorePkg in /etc/pacman.conf. Verify each layer works before moving on
+and install the patched libcamera (part 1), install the color fix (part 2,
+including the anti-flicker tuning), then set up the v4l2loopback virtual
+camera for WeChat/wemeet (part 3: driver patch + pacman hook, feed service
+with the auto-dgain watcher, and the wemeet shim). Add the libcamera packages
+to IgnorePkg in /etc/pacman.conf. Verify each layer works before moving on
 (verify-camera.sh, cam -l, a test frame from the virtual camera).
 ```
 
