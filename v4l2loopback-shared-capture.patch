@@ -1,6 +1,55 @@
---- /usr/src/v4l2loopback-0.15.4/v4l2loopback.c	2026-07-20 23:44:11.778035698 +0800
-+++ /tmp/v4l2loopback.c	2026-07-20 23:49:35.609112404 +0800
-@@ -1747,8 +1747,10 @@
+--- a/v4l2loopback.c	2026-08-10 22:11:51.000000000 +0800
++++ b/v4l2loopback.c	2026-09-23 22:31:09.705067264 +0800
+@@ -466,6 +466,8 @@
+ 	} while (0)
+ #define has_output_token(token) (token & V4L2L_TOKEN_OUTPUT)
+ #define has_capture_token(token) (token & V4L2L_TOKEN_CAPTURE)
++/* pixelbook-go: true when a producer holds the OUTPUT stream token */
++#define producer_streaming(dev) (!has_output_token((dev)->stream_tokens))
+ #define has_no_owners(dev) ((~((dev)->format_tokens) & V4L2L_TOKEN_MASK) == 0)
+ #define has_other_owners(opener, dev) \
+ 	(~((dev)->format_tokens ^ (opener)->format_token) & V4L2L_TOKEN_MASK)
+@@ -1140,7 +1142,12 @@
+ 
+ 	if (opener->format_token)
+ 		release_token(dev, opener, format);
+-	if (!(dev->format_tokens & token)) {
++	if (!(dev->format_tokens & token) &&
++	    !(V4L2_TYPE_IS_CAPTURE(f->type) && producer_streaming(dev) &&
++	      pix_format_eq(&dev->pix_format, &f->fmt.pix, 0))) {
++		/* pixelbook-go: allow additional CAPTURE consumers to proceed
++		 * without owning the format token, as long as a producer is
++		 * streaming and they (after coercion) use the current format */
+ 		result = -EBUSY;
+ 		goto exit_s_fmt_unlock;
+ 	}
+@@ -1166,7 +1173,10 @@
+ 		dev->pix_format_has_valid_sizeimage =
+ 			v4l2l_pix_format_has_valid_sizeimage(f);
+ 	}
+-	acquire_token(dev, opener, format, token);
++	/* pixelbook-go: only acquire the token if it is actually free;
++	 * shared capture consumers run tokenless (see relaxed gates) */
++	if (dev->format_tokens & token)
++		acquire_token(dev, opener, format, token);
+ 	if (opener->io_method == V4L2L_IO_TIMEOUT)
+ 		dev->timeout_image_io = 0;
+ 	goto exit_s_fmt_unlock;
+@@ -1723,8 +1733,11 @@
+ 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
+ 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
+ 		if (!(dev->format_tokens & token ||
+-		      opener->format_token & token))
+-			/* only exclusive ownership for each stream */
++		      opener->format_token & token) &&
++		    !(reqbuf->type == V4L2_BUF_TYPE_VIDEO_CAPTURE &&
++		      producer_streaming(dev)))
++			/* pixelbook-go: shared capture consumers may map the
++			 * existing buffers while a producer is streaming */
+ 			result = -EBUSY;
+ 		break;
+ 	default:
+@@ -1734,8 +1747,10 @@
  		goto exit_reqbufs_unlock;
  
  	if (has_other_owners(opener, dev) && dev->used_buffer_count > 0) {
@@ -13,7 +62,18 @@
  	} else if (any_mapped_buffer(dev)) {
  		/* do not allow re-allocation if buffers are mapped */
  		result = -EBUSY;
-@@ -1779,8 +1781,16 @@
+@@ -1754,7 +1769,9 @@
+ 		if (result < 0)
+ 			goto exit_reqbufs_unlock;
+ 	}
+-	acquire_token(dev, opener, format, token);
++	/* pixelbook-go: only acquire when the token is actually free */
++	if (dev->format_tokens & token)
++		acquire_token(dev, opener, format, token);
+ 
+ 	MARK();
+ 	switch (opener->io_method) {
+@@ -1764,8 +1781,16 @@
  		break;
  	default:
  		opener->io_method = V4L2L_IO_MMAP;
@@ -32,3 +92,97 @@
  	}
  exit_reqbufs_unlock:
  	mutex_unlock(&dev->image_mutex);
+@@ -1788,7 +1813,10 @@
+ 	if ((type != V4L2_BUF_TYPE_VIDEO_CAPTURE) &&
+ 	    (type != V4L2_BUF_TYPE_VIDEO_OUTPUT))
+ 		return -EINVAL;
+-	if (!is_allocated(opener, type, index))
++	if (!is_allocated(opener, type, index) &&
++	    !(type == V4L2_BUF_TYPE_VIDEO_CAPTURE && producer_streaming(dev) &&
++	      opener->buffer_count > 0 && index < opener->buffer_count))
++		/* pixelbook-go: tokenless shared capture consumers allowed */
+ 		return -EINVAL;
+ 
+ 	if (opener->format_token & V4L2L_TOKEN_TIMEOUT) {
+@@ -1856,7 +1884,10 @@
+ 	u32 index = buf->index;
+ 	u32 type = buf->type;
+ 
+-	if (!is_allocated(opener, type, index))
++	if (!is_allocated(opener, type, index) &&
++	    !(type == V4L2_BUF_TYPE_VIDEO_CAPTURE && producer_streaming(dev) &&
++	      opener->buffer_count > 0 && index < opener->buffer_count))
++		/* pixelbook-go: tokenless shared capture consumers allowed */
+ 		return -EINVAL;
+ 	bufd = &dev->buffers[index];
+ 
+@@ -1968,13 +1999,16 @@
+ 					  dev->used_buffer_count - 1,
+ 				  dev->used_buffer_count);
+ 	} else {
+-		opener->reread_count = 0;
+-		if (dev->write_position >
+-		    opener->read_position + dev->used_buffer_count)
+-			opener->read_position = dev->write_position - 1;
+-		pos = v4l2l_mod64(opener->read_position,
++		/* pixelbook-go: live-camera semantics — always serve the
++		 * freshest completed slot. The producer recycles slots in
++		 * FIFO order, so the freshest slot is rewritten furthest
++		 * in the future; serving older slots puts the reader
++		 * exactly on the buffer the producer is memcpy()ing into
++		 * right now (rolling tear-line, worst for slow readers
++		 * like wemeet's TRTC engine). */
++		opener->read_position = dev->write_position;
++		pos = v4l2l_mod64(dev->write_position - 1,
+ 				  dev->used_buffer_count);
+-		++opener->read_position;
+ 	}
+ 	timeout_happened = dev->timeout_happened && (dev->timeout_jiffies > 0);
+ 	dev->timeout_happened = 0;
+@@ -2016,7 +2050,9 @@
+ 		return 0;
+ 	}
+ 	if ((opener->buffer_count == 0) ||
+-	    !(opener->format_token & token_from_type(type)))
++	    (!(opener->format_token & token_from_type(type)) &&
++	     !(type == V4L2_BUF_TYPE_VIDEO_CAPTURE && producer_streaming(dev))))
++		/* pixelbook-go: tokenless shared capture consumers allowed */
+ 		return -EINVAL;
+ 
+ 	switch (type) {
+@@ -2067,7 +2103,10 @@
+ 	if (opener->format_token & V4L2L_TOKEN_TIMEOUT)
+ 		return 0;
+ 	/* opener must have claimed (same) buffer set via REQBUFS */
+-	if (!opener->buffer_count || !(opener->format_token & token))
++	if (!opener->buffer_count ||
++	    (!(opener->format_token & token) &&
++	     !(type == V4L2_BUF_TYPE_VIDEO_CAPTURE && producer_streaming(dev))))
++		/* pixelbook-go: tokenless shared capture consumers allowed */
+ 		return -EINVAL;
+ 
+ 	switch (type) {
+@@ -2337,6 +2376,10 @@
+ 		ret_mask |= POLLOUT | POLLWRNORM;
+ 		break;
+ 	default:
++		/* pixelbook-go: tokenless shared capture consumers poll
++		 * like normal readers while a producer is streaming */
++		if (producer_streaming(dev) && can_read(dev, opener))
++			ret_mask |= POLLIN | POLLRDNORM;
+ 		break;
+ 	}
+ 
+@@ -2437,6 +2480,12 @@
+ 	    opener->format_token & ~token)
+ 		return -EBUSY; /* NOTE: -EBADF might be more informative */
+ 
++	/* pixelbook-go: an already-set-up capture consumer may read while
++	 * a producer is streaming (e.g. REQBUFS-then-read style clients) */
++	if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE && producer_streaming(dev) &&
++	    opener->buffer_count > 0)
++		return 0;
++
+ 	/* short-circuit if already have stream token */
+ 	if (opener->stream_token && opener->io_method == V4L2L_IO_FILE)
+ 		return 0;

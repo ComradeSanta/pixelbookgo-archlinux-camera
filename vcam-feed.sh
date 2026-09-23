@@ -100,6 +100,9 @@ do_start() {
     local pipeline
     pipeline=$(build_pipeline "$cam_src" "$vcam_dev")
 
+    # Use the anti-flicker tuning file (pins exposure to 10 ms = one 50 Hz mains cycle)
+    export LIBCAMERA_IPA_CONFIG_PATH="${LIBCAMERA_IPA_CONFIG_PATH:-$HOME/.config/libcamera/ipa}"
+
     info "Starting camera feed → $vcam_dev (${CAM_WIDTH}x${CAM_HEIGHT} @ ${CAM_FPS}fps)…"
     [ -n "$cam_src" ] && info "Source: $cam_src"
     info "Pipeline: $pipeline"

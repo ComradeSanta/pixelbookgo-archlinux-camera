@@ -78,7 +78,20 @@ Details and Fedora/other-distro instructions:
 ## 2. Part 2 — fix the picture (tuning + digital gain)
 
 The `imx208.yaml` IPA tuning file plus a script that pushes the sensor's
-`digital_gain` to 8× (libcamera's AGC doesn't control it).
+`digital_gain` (libcamera's AGC doesn't control it).
+
+The tuning file also fixes **50 Hz mains flicker**: its exposure curve pins
+the exposure time at 10 ms — exactly one flicker cycle (100 Hz intensity) —
+so indoor lighting no longer makes the picture pulse; the AGC just varies
+gain within the pinned window. In 60 Hz countries change `10000` to `8333`
+in the tuning file.
+
+The pinned window is only 8× wide (10 ms × analogue gain 1–8), scaled by
+`digital_gain`. A fixed value can't cover both a bright afternoon and a dim
+evening — when the scene falls outside the window the AGC leaves the 10 ms
+pin and banding returns. [`imx208-auto-dgain.sh`](imx208-auto-dgain.sh) is a
+small watcher (started by the feed service) that polls the sensor and steps
+`digital_gain` up/down so the exposure stays pinned across all lighting.
 
 ```bash
 cd imx208-camera-color-fix
@@ -109,19 +122,39 @@ v4l2loopback 0.15 allows only **one** capture-side owner per device, which
 breaks real-world usage (an app that probes the camera on one fd and captures
 on another gets `EBUSY`; two apps can't share the camera). This repo ships
 [`v4l2loopback-shared-capture.patch`](v4l2loopback-shared-capture.patch) which
-relaxes the token gates so multiple capture consumers can read the same feed,
-and lets consumers map the whole buffer pool:
+fixes three things:
+
+- **shared capture**: tokenless capture consumers may open, `S_FMT`,
+  `REQBUFS`, `QUERYBUF`, `QBUF`, `DQBUF`, `STREAMON`, `poll` and `read`
+  while a producer streams — several apps can read the camera at once
+- **live-camera delivery**: capture `DQBUF` always returns the *freshest
+  completed* slot instead of the oldest unread one. The producer recycles
+  slots FIFO, so the freshest slot is rewritten furthest in the future —
+  slow consumers (wemeet's TRTC engine reads its buffer *during* encode)
+  otherwise land exactly on the slot the producer is memcpy()ing into,
+  producing a torn frame whose seam slowly rolls up the picture
+- **full-pool mapping**: consumers may map the whole allocated pool
+  (up to `max_buffers`)
+
+Apply it and rebuild for all installed kernels:
 
 ```bash
-cd /usr/src/v4l2loopback-0.15.4
-sudo patch -p1 < /path/to/this/repo/v4l2loopback-shared-capture.patch
-sudo dkms build v4l2loopback/0.15.4 -k "$(uname -r)" --force
-sudo dkms install v4l2loopback/0.15.4 -k "$(uname -r)" --force
+sudo ./apply-v4l2loopback-patch.sh    # idempotent: patch + dkms build/install --force
 ```
 
 DKMS keeps the patched source in `/usr/src`, so **the patch survives kernel
-updates automatically**. It is only lost if the `v4l2loopback-dkms` package
-itself is reinstalled/upgraded — then re-apply the two commands above.
+updates automatically** — but a reinstall/upgrade of the `v4l2loopback-dkms`
+package itself restores the pristine source. Install the pacman hook so the
+patch is re-applied automatically in that case (without it, the next kernel
+update would silently build an unpatched module):
+
+```bash
+sudo cp pacman/v4l2loopback-shared-capture.hook /etc/pacman.d/hooks/
+```
+
+(Manual equivalent of the script: `cd /usr/src/v4l2loopback-0.15.4 &&
+sudo patch -p1 < …/v4l2loopback-shared-capture.patch`, then `sudo dkms build
+v4l2loopback/0.15.4 -k "$(uname -r)" --force && sudo dkms install … --force`.)
 
 ### 3.2 Load the module at boot
 
@@ -143,6 +176,8 @@ The feed pipes the real sensor (1280×720 NV12) through `videoconvert` to
 ```bash
 cp v4l2loopback-gst.sh ~/.local/bin/ && chmod +x ~/.local/bin/v4l2loopback-gst.sh
 cp imx208-digital-gain-fix.sh ~/.local/bin/ && chmod +x ~/.local/bin/imx208-digital-gain-fix.sh
+mkdir -p ~/.config/libcamera/ipa/ipu3
+cp ipa/ipu3/imx208.yaml ~/.config/libcamera/ipa/ipu3/   # anti-flicker tuning
 cp systemd/v4l2loopback-camera.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 # Deliberately NOT enabled: a running feed keeps the sensor (and its LED) on.
@@ -168,7 +203,12 @@ wemeet's TRTC engine sends per-frame `DQBUF`/`QBUF` with
 `v4l2_buffer.memory = 0`; v4l2loopback rejects anything but
 `V4L2_MEMORY_MMAP` with `EINVAL`, and the camera stays black while other apps
 work. [`wemeet-v4l2fix.c`](wemeet-v4l2fix.c) is an `LD_PRELOAD` shim that
-rewrites the field:
+rewrites the field. The shim also fixes TRTC's second quirk: it keeps using
+the mapped buffer *after* `DQBUF` while encoding, racing the producer's next
+write into that same shared memory (a torn frame with a slowly rolling
+seam — the driver patch in §3.1 already serves the safest slot; as a second
+layer the shim substitutes a **private copy** of each buffer, refreshed
+synchronously at every `DQBUF`, so TRTC's late reads stay clean):
 
 ```bash
 gcc -O2 -shared -fPIC -o wemeet-v4l2fix.so wemeet-v4l2fix.c -ldl
@@ -249,9 +289,12 @@ time could open it.
 | `vcam-feed.sh` | fallback feed daemon (the systemd service is canonical) |
 | `v4l2loopback-gst.sh` | the actual gstreamer pipeline (→ `~/.local/bin/`) |
 | `systemd/v4l2loopback-camera.service` | user service that runs the feed |
-| `imx208-digital-gain-fix.sh` | sensor brightness fix (→ `~/.local/bin/`) |
+| `imx208-digital-gain-fix.sh` | initial `digital_gain` at feed start (→ `~/.local/bin/`) |
+| `imx208-auto-dgain.sh` | watcher: adapts `digital_gain` to keep exposure pinned at 10 ms in any lighting (run by the service) |
+| `ipa/ipu3/imx208.yaml` | anti-flicker tuning: exposure pinned to 10 ms (→ `~/.config/libcamera/ipa/`) |
 | `wireplumber/51-disable-libcamera.conf` | stop wireplumber's libcamera SEGV loop |
 | `v4l2loopback-shared-capture.patch` | driver patch: shared capture consumers |
+| `apply-v4l2loopback-patch.sh` + `pacman/*.hook` | apply/rebuild the driver patch; hook auto-re-applies it when the DKMS package is upgraded |
 | `wemeet.sh`, `wechat.sh` | app wrappers (camera check + shim for wemeet) |
 | `wemeet-v4l2fix.c` / `.so` | LD_PRELOAD shim fixing wemeet's black camera |
 | `install-desktop.sh` | install the GNOME menu entries |
@@ -262,6 +305,9 @@ time could open it.
 |---------|--------------------|
 | `cam -l` shows no camera | patched libcamera not active (§1); check `IgnorePkg` after upgrades |
 | Picture dark/washed out | color fix not applied (§2); check tuning file + `digital_gain` |
+| Picture pulses/flickers indoors | 50 Hz mains flicker — §2 tuning pins exposure to 10 ms; verify `journalctl --user -u v4l2loopback-camera` shows `Using tuning file …/.config/libcamera/ipa/ipu3/imx208.yaml` (60 Hz countries: use 8333 µs) |
+| Flicker only in dim rooms | scene outside the pinned window — the `imx208-auto-dgain.sh` watcher should re-pin it; check it's running (`pgrep -f auto-dgain`) |
+| Rolling horizontal seam in wemeet | stale-slot tearing — pre-§3.1 driver or wemeet launched without the shim (§3.5) |
 | wemeet camera black | launched without the shim — use the stock icon or `./wemeet.sh`; verify with `WEMEET_V4L2FIX_LOG=/tmp/fix.log` |
 | App says camera busy | pre-patch v4l2loopback (§3.1) — re-apply the driver patch + dkms |
 | Session "shuts down" to login screen | wireplumber's libcamera plugin crash — apply §3.4 |

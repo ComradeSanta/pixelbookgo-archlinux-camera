@@ -7,6 +7,7 @@ Requires=pipewire.service
 Type=simple
 ExecStartPre=/bin/sh -c 'v4l2-ctl --list-devices 2>/dev/null | grep -q "Virtual Camera"'
 ExecStart=/home/arch/.local/bin/v4l2loopback-gst.sh
+ExecStartPost=-/bin/sh -c '/home/arch/virtualcamera/imx208-auto-dgain.sh &'
 Restart=always
 RestartSec=5
 

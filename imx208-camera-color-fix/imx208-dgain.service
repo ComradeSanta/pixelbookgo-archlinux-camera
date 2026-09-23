@@ -1,5 +1,5 @@
 [Unit]
-Description=Set IMX208 digital gain to 8x
+Description=Set IMX208 digital gain to 2x
 After=wireplumber.service
 Wants=wireplumber.service
 

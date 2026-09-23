@@ -25,7 +25,7 @@
 - 曝光时间与增益的分段映射，最高 16x
 - 安装路径: `/usr/share/libcamera/ipa/ipu3/`
 
-### 2. `set-digital-gain.sh` — 手动推 digital gain 到 8x
+### 2. `set-digital-gain.sh` — 手动推 digital gain 到 2x
 - libcamera 不会动的寄存器，我们手动设
 - 自动发现 IMX208 sensor 节点（适配设备号变化）
 - 等待 sensor 上电后再写入
@@ -70,7 +70,7 @@ cam -c1 -I 2>&1 | grep "Using tuning file"
 # 确认 digital gain 已设置
 SENSOR=$(media-ctl -p 2>/dev/null | grep -A2 imx208 | grep "device node" | awk '{print $NF}')
 v4l2-ctl -d "$SENSOR" --get-ctrl=digital_gain
-# 应输出: digital_gain: 3 (8 0x8)
+# 应输出: digital_gain: 1 (2 0x2)
 ```
 
 ## 已知限制

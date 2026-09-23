@@ -9,6 +9,9 @@ if [ -z "$VDEV" ]; then
     exit 1
 fi
 
+# Use the anti-flicker tuning file (pins exposure to 10 ms = one 50 Hz mains cycle)
+export LIBCAMERA_IPA_CONFIG_PATH="$HOME/.config/libcamera/ipa"
+
 exec gst-launch-1.0 libcamerasrc camera-name="\\\\_SB_.PCI0.I2C3.CAM0" \
     ! "video/x-raw,format=NV12,width=1280,height=720,framerate=30/1" \
     ! queue max-size-buffers=3 \

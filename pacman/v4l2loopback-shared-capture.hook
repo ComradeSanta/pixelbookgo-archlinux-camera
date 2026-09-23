@@ -1,0 +1,17 @@
+# Re-apply the shared-capture patch whenever the v4l2loopback-dkms package
+# is (re)installed or upgraded — the package ships the pristine source,
+# wiping the patch, and the next DKMS rebuild (e.g. on a kernel update)
+# would then silently produce an unpatched module.
+# Install: sudo cp pacman/v4l2loopback-shared-capture.hook /etc/pacman.d/hooks/
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = v4l2loopback-dkms
+
+[Action]
+Description = Re-applying v4l2loopback shared-capture patch and rebuilding...
+When = PostTransaction
+Exec = /home/arch/virtualcamera/apply-v4l2loopback-patch.sh
+Depends = v4l2loopback-dkms
+Depends = patch
