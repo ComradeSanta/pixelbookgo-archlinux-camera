@@ -112,26 +112,7 @@ start_feed() {
         return 0
     fi
 
-    local feed_script="${SCRIPT_DIR}/vcam-feed.sh"
-
-    if [ ! -x "$feed_script" ]; then
-        return 0
-    fi
-
-    # Don't restart if already running
-    if "$feed_script" status &>/dev/null; then
-        ok "Camera feed already running"
-        return 0
-    fi
-
-    info "Starting camera feed…"
-    local feed_output feed_rc
-    feed_output=$("$feed_script" start 2>&1) && feed_rc=0 || feed_rc=$?
-    printf '%s\n' "$feed_output" | sed 's/^/  /'
-    if [ "$feed_rc" != "0" ]; then
-        warn "Camera feed could not be started — camera may show black video"
-        warn "Start it manually: ./vcam-feed.sh start"
-    fi
+    warn "v4l2loopback-camera.service not found — no feed started (see README §3.3)"
     return 0
 }
 
@@ -298,7 +279,7 @@ main() {
         start_feed
         echo ""
         log "Activation not needed — already active"
-        info "Camera is ready! Launch wemeet with:  ./wemeet.sh"
+        info "Camera is ready! Launch 腾讯会议 from your app menu"
         return 0
     fi
     echo ""
@@ -316,7 +297,7 @@ main() {
             start_feed
             echo ""
             log "Activation successful via $PRIV_TOOL"
-            info "Virtual camera is ready! Launch wemeet with:  ./wemeet.sh"
+            info "Virtual camera is ready! Launch 腾讯会议 from your app menu"
             return 0
         } || true
         echo ""

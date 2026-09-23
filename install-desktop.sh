@@ -18,7 +18,7 @@ main() {
 
     mkdir -p "$APPLICATIONS_DIR"
 
-    for desktop in vcam-toggle.desktop vcam-on.desktop vcam-off.desktop; do
+    for desktop in vcam-toggle.desktop vcam-on.desktop vcam-off.desktop wemeetapp.desktop; do
         local src="${SCRIPT_DIR}/${desktop}"
         local dst="${APPLICATIONS_DIR}/${desktop}"
 
@@ -51,6 +51,7 @@ main() {
     info "  • Toggle Virtual Camera   (vcam-toggle.desktop — daily use)"
     info "  • Enable Virtual Camera   (vcam-on.desktop)"
     info "  • Disable Virtual Camera  (vcam-off.desktop)"
+    info "  • 腾讯会议 WemeetApp       (wemeetapp.desktop — stock icon + camera shim)"
     echo ""
     info "Note: If shortcuts don't appear immediately, log out and back in."
 }

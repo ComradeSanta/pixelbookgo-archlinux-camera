@@ -235,9 +235,10 @@ synchronously at every `DQBUF`, so TRTC's late reads stay clean):
 gcc -O2 -shared -fPIC -o wemeet-v4l2fix.so wemeet-v4l2fix.c -ldl
 ```
 
-`wemeet.sh` preloads it automatically. The stock 腾讯会议 menu entry is
-overridden at user level (`~/.local/share/applications/wemeetapp.desktop`)
-with `Exec=env LD_PRELOAD=...wemeet-v4l2fix.so /opt/wemeet/wemeetapp.sh %u`
+The stock 腾讯会议 menu entry is overridden at user level by
+[`wemeetapp.desktop`](wemeetapp.desktop) (installed into
+`~/.local/share/applications/` by `install-desktop.sh`, shadowing the system
+one) with `Exec=env LD_PRELOAD=...wemeet-v4l2fix.so /opt/wemeet/wemeetapp.sh %u`
 so the normal icon gets the fix — no separate shortcut.
 
 ## 4. Shortcuts and daily use
@@ -254,8 +255,7 @@ Daily flow:
 3. Toggle again to turn it off — LED goes out
 
 `vcam-on.sh` / `vcam-off.sh` (module load/unload + diagnostics) remain as the
-full-control variants. `wemeet.sh` / `wechat.sh` are optional wrappers that
-warn you (GUI notification) if you forgot to toggle the feed on.
+full-control variants.
 
 ## 5. How it works (architecture)
 
@@ -284,7 +284,7 @@ Three pieces had to be fixed at different levels; all three are in this repo:
 | App | Works? | Notes |
 |-----|--------|-------|
 | WeChat | ✅ | reads `/dev/videoN` directly; nothing special needed |
-| Tencent Meeting (wemeet) | ✅ | only via the `LD_PRELOAD` shim (built into `wemeet.sh` and the stock icon override) |
+| Tencent Meeting (wemeet) | ✅ | only via the `LD_PRELOAD` shim (wired into the stock icon by `wemeetapp.desktop`) |
 | guvcview | ✅ | direct V4L2; install `guvcview`. Takes photos/videos |
 | Chrome/Chromium | ✅ | uses V4L2 directly |
 | mpv/ffplay | ✅ | `mpv av://v4l2:/dev/videoN` for a quick preview |
@@ -307,7 +307,6 @@ time could open it.
 |------|---------|
 | `vcam-toggle.sh` / `vcam-toggle.desktop` | daily on/off for the feed (LED follows) |
 | `vcam-on.sh` / `vcam-off.sh` (+`.desktop`) | full module load/unload + diagnostics |
-| `vcam-feed.sh` | fallback feed daemon (the systemd service is canonical) |
 | `v4l2loopback-gst.sh` | the actual gstreamer pipeline (→ `~/.local/bin/`) |
 | `systemd/v4l2loopback-camera.service` | user service that runs the feed |
 | `imx208-digital-gain-fix.sh` | initial `digital_gain` at feed start (→ `~/.local/bin/`) |
@@ -316,8 +315,8 @@ time could open it.
 | `wireplumber/51-disable-libcamera.conf` | stop wireplumber's libcamera SEGV loop |
 | `v4l2loopback-shared-capture.patch` | driver patch: shared capture consumers |
 | `apply-v4l2loopback-patch.sh` + `pacman/*.hook` | apply/rebuild the driver patch; hook auto-re-applies it when the DKMS package is upgraded |
-| `wemeet.sh`, `wechat.sh` | app wrappers (camera check + shim for wemeet) |
 | `wemeet-v4l2fix.c` / `.so` | LD_PRELOAD shim fixing wemeet's black camera |
+| `wemeetapp.desktop` | user-level override of the stock 腾讯会议 icon (adds the shim) |
 | `install-desktop.sh` | install the GNOME menu entries |
 
 ## 8. Troubleshooting
@@ -329,7 +328,7 @@ time could open it.
 | Picture pulses/flickers indoors | 50 Hz mains flicker — §2 tuning pins exposure to 10 ms; verify `journalctl --user -u v4l2loopback-camera` shows `Using tuning file …/.config/libcamera/ipa/ipu3/imx208.yaml` (60 Hz countries: use 8333 µs) |
 | Flicker only in dim rooms | scene outside the pinned window — the `imx208-auto-dgain.sh` watcher should re-pin it; check it's running (`pgrep -f auto-dgain`) |
 | Rolling horizontal seam in wemeet | stale-slot tearing — pre-§3.1 driver or wemeet launched without the shim (§3.5) |
-| wemeet camera black | launched without the shim — use the stock icon or `./wemeet.sh`; verify with `WEMEET_V4L2FIX_LOG=/tmp/fix.log` |
+| wemeet camera black | launched without the shim — install the icon override (`./install-desktop.sh`) and use the stock 腾讯会议 icon; verify with `WEMEET_V4L2FIX_LOG=/tmp/fix.log` |
 | App says camera busy | pre-patch v4l2loopback (§3.1) — re-apply the driver patch + dkms |
 | Session "shuts down" to login screen | wireplumber's libcamera plugin crash — apply §3.4 |
 | guvcview fails to start stream | pre-§3.1 driver; also try `-b` (disable libv4l2) |

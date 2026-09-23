@@ -20,11 +20,6 @@ stop_feed() {
     if systemctl --user cat v4l2loopback-camera.service &>/dev/null; then
         systemctl --user stop v4l2loopback-camera.service 2>/dev/null || true
     fi
-
-    local feed_script="${SCRIPT_DIR}/vcam-feed.sh"
-    if [ -x "$feed_script" ]; then
-        "$feed_script" stop 2>/dev/null || true
-    fi
 }
 
 # ─── find v4l2loopback device ────────────────────────────────────────────────
